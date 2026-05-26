@@ -1,0 +1,7 @@
+node_modules/
+ffmpeg.exe
+*.log
+.env
+.git/
+.DS_Store
+Thumbs.db
