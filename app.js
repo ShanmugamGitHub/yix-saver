@@ -364,13 +364,13 @@ function triggerDownload(fmt, meta) {
   progressEl.style.transition = 'width 20s cubic-bezier(0.1, 0.8, 0.1, 1)';
   progressEl.style.width = '92%';
 
-  // Step-by-step simulator to match backend activities
+  // Step-by-step simulator to match backend activities in user-friendly terms
   const textSteps = [
-    { time: 1800,  text: 'Fetching streams…' },
+    { time: 1800,  text: 'Preparing request…' },
     { time: 4500,  text: 'Downloading video…' },
     { time: 7500,  text: 'Downloading audio…' },
-    { time: 11000, text: 'Merging tracks (ffmpeg)…' },
-    { time: 15000, text: 'Optimising MP4…' },
+    { time: 11000, text: 'Merging video & audio…' },
+    { time: 15000, text: 'Finishing up…' },
     { time: 18500, text: 'Starting download!' }
   ];
 
@@ -407,7 +407,7 @@ function triggerDownload(fmt, meta) {
   downloadFrame.src = downloadUrl;
 
   const label = fmt.quality === 'Audio' ? 'audio' : `${fmt.quality} MP4`;
-  showToast(`⬇️ Processing ${label} on server. Your download will start shortly!`, 'success');
+  showToast(`⬇️ Processing on our free server. Merging audio & video takes about 10–15 seconds. Please stay on this page!`, 'success');
 
   // Reset button after 21 seconds (full cycle)
   setTimeout(() => {
