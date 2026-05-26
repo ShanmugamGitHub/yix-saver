@@ -13,12 +13,19 @@ app.use(express.json());
 // Serve the frontend static files
 app.use(express.static(path.join(__dirname)));
 
-// ─── Utility: spawn yt-dlp via Python module, with local ffmpeg ──────────────
+// ─── Utility: spawn yt-dlp via Python module, with local ffmpeg & optional cookies ──────────────
 const FFMPEG_PATH = path.join(__dirname, 'ffmpeg.exe');
 const ffmpegExists = require('fs').existsSync(FFMPEG_PATH);
 
+const COOKIES_PATH = path.join(__dirname, 'cookies.txt');
+const cookiesExists = require('fs').existsSync(COOKIES_PATH);
+
 function spawnYtDlp(args, opts) {
   const extraArgs = ffmpegExists ? ['--ffmpeg-location', FFMPEG_PATH] : [];
+  if (cookiesExists) {
+    console.log('[yt-dlp] Authenticating with secure cookies.txt.');
+    extraArgs.push('--cookies', COOKIES_PATH);
+  }
   return spawn('python', ['-m', 'yt_dlp', ...extraArgs, ...args], opts);
 }
 
