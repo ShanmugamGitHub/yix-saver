@@ -1,5 +1,5 @@
 # Use a lightweight official Node.js image
-FROM node:18-bullseye-slim
+FROM node:18-bookworm-slim
 
 # Install system dependencies: python3, python3-pip, ffmpeg, curl
 RUN apt-get update && apt-get install -y \

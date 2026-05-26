@@ -40,7 +40,7 @@ app.post('/api/info', (req, res) => {
     '--no-warnings',
     '--socket-timeout', '15',
     '--geo-bypass',
-    '--extractor-args', 'youtube:player_client=android,web',
+    '--extractor-args', 'youtube:player_client=ios',
     url
   ];
 
@@ -359,7 +359,7 @@ app.get('/api/download', (req, res) => {
         '--no-playlist',
         '--no-warnings',
         '--geo-bypass',
-        '--extractor-args', 'youtube:player_client=android,web',
+        '--extractor-args', 'youtube:player_client=ios',
         '-o', '-',
         url
       ];
@@ -400,7 +400,7 @@ app.get('/api/download', (req, res) => {
         '--no-playlist',
         '--no-warnings',
         '--geo-bypass',
-        '--extractor-args', 'youtube:player_client=android,web',
+        '--extractor-args', 'youtube:player_client=ios',
         '--remux-video', 'mp4',          // Force ffmpeg remux TS→MP4 (extracts audio from HLS TS)
         '--merge-output-format', 'mp4',  // If merging two formats, output as MP4
         // Move moov atom to start of file → browser can play immediately, audio works
