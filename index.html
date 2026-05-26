@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YIX Saver — Social Video Downloader</title>
+  <meta name="description"
+    content="Download high-quality videos from Instagram, YouTube, and X (Twitter) instantly with YIX Saver. Fast, free and premium quality.">
+
+  <!-- FontAwesome 6.5.1 (includes fa-x-twitter brand icon) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- Animated Ambient Backgrounds -->
+  <div class="bg-ambient">
+    <div class="ambient-sphere sphere-1"></div>
+    <div class="ambient-sphere sphere-2"></div>
+    <div class="ambient-sphere sphere-3"></div>
+  </div>
+
+  <!-- Persistent Toasts Dock -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Site Navigation Header -->
+  <header>
+    <div class="logo-container" onclick="showView('home')">
+      <div class="logo-icon">
+        <i class="fas fa-cloud-arrow-down"></i>
+      </div>
+      <div class="logo-text-block">
+        <h1 class="logo-text">YIX<span>Saver</span></h1>
+        <span class="logo-tagline">Video Downloader</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-history" onclick="openHistoryDrawer()">
+        <i class="fas fa-history"></i>
+        <span>History</span>
+        <span id="history-counter" class="history-badge"
+          style="display: none; background: #06b6d4; color: white; padding: 0.15rem 0.4rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; margin-left: 0.25rem;">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Dynamic Dashboard Panel -->
+  <main>
+    <div id="app-wrapper" class="app-wrapper">
+
+      <!-- SCREEN 1: Home Grid View -->
+      <section id="view-home" class="view-panel active">
+        <h2 class="home-title">Download Any Video</h2>
+        <p class="home-subtitle">Grab and save videos from Instagram, YouTube &amp; X in full HD quality — fast and
+          free.</p>
+
+        <div class="platform-grid">
+          <!-- Instagram Selection Card -->
+          <div class="platform-card card-instagram" onclick="selectPlatform('instagram')">
+            <div class="platform-icon-wrapper">
+              <i class="fab fa-instagram"></i>
+            </div>
+            <span class="platform-name">Instagram</span>
+          </div>
+
+          <!-- YouTube Selection Card -->
+          <div class="platform-card card-youtube" onclick="selectPlatform('youtube')">
+            <div class="platform-icon-wrapper">
+              <i class="fab fa-youtube"></i>
+            </div>
+            <span class="platform-name">YouTube</span>
+          </div>
+
+          <!-- X Selection Card -->
+          <div class="platform-card card-x" onclick="selectPlatform('x')">
+            <div class="platform-icon-wrapper">
+              <i class="fab fa-x-twitter"></i>
+            </div>
+            <span class="platform-name">X (Twitter)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREEN 2: Input Form View -->
+      <section id="view-input" class="view-panel">
+        <div class="input-header">
+          <button class="btn-back" onclick="showView('home')" aria-label="Go Back">
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <div class="input-title-container">
+            <i id="input-title-icon" class="fab fa-instagram input-title-icon"></i>
+            <h2 id="input-view-title" class="input-view-title">Instagram Video Grabber</h2>
+          </div>
+        </div>
+
+        <div class="url-bar-container">
+          <input type="text" id="url-input" class="input-url" placeholder="Paste link here..." autocomplete="off">
+          <i class="fas fa-link input-url-icon"></i>
+          <button id="btn-paste" class="btn-paste">
+            <i class="fas fa-paste"></i>
+            <span>Paste Link</span>
+          </button>
+        </div>
+
+        <!-- Validation Error block -->
+        <div id="error-msg" class="error-msg">
+          <i class="fas fa-exclamation-circle"></i>
+          <span>Please enter a valid URL.</span>
+        </div>
+
+        <button id="btn-download" class="btn-download">
+          <span>Extract Streams</span>
+          <i class="fas fa-arrow-right"></i>
+        </button>
+      </section>
+
+      <!-- SCREEN 3: Scraper API Progress logs -->
+      <section id="view-loading" class="view-panel">
+        <div class="loading-box">
+          <div class="spinner-outer">
+            <div class="spinner-inner">
+              <i class="fas fa-cloud-download-alt spinner-logo"></i>
+            </div>
+          </div>
+          <h2 class="loading-text">Scraping Resource Stream</h2>
+          <p class="loading-subtext">Resolving platform restrictions & extracting stream components...</p>
+
+          <!-- Terminal logging window -->
+          <div id="terminal-panel" class="terminal-panel">
+            <div class="terminal-line success">Scraper kernel loaded. Ready.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREEN 4: Presentation Panel -->
+      <section id="view-result" class="view-panel">
+        <div class="result-header">
+          <div class="result-header-left">
+            <button class="btn-home" onclick="showView('home')">
+              <i class="fas fa-search"></i>
+              <span>Grab Another</span>
+            </button>
+          </div>
+          <h2 class="input-view-title" style="font-size: 1.25rem;">Extraction Successful</h2>
+        </div>
+
+        <div class="result-layout">
+          <!-- Media Player Preview Block (Left Column) -->
+          <div class="media-container">
+            <div id="result-media-frame" class="media-frame">
+              <!-- Dynamically populated via app.js -->
+            </div>
+          </div>
+
+          <!-- Metadata & Resolution Selector Column (Right Column) -->
+          <div class="details-container">
+            <div id="result-meta-card">
+              <!-- Dynamically populated via app.js -->
+            </div>
+
+            <div style="margin-top: 1.5rem;">
+              <h3 class="download-section-title">Available Resolutions</h3>
+              <div id="variant-grid" class="variant-grid">
+                <!-- Dynamically populated via app.js -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Interactive Slide-out History Sidebar Drawer -->
+  <div id="history-drawer" class="history-drawer">
+    <div class="history-header">
+      <h2 class="history-title"><i class="fas fa-history"></i> Grab History</h2>
+      <button class="btn-close-drawer" onclick="closeHistoryDrawer()" aria-label="Close History">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div id="recent-history-list" class="history-list">
+      <!-- Dynamically populated via app.js -->
+    </div>
+    <button id="btn-clear-history" class="btn-history-clear" onclick="clearAllHistory()">
+      <i class="far fa-trash-alt"></i>
+      <span>Clear History</span>
+    </button>
+  </div>
+
+  <!-- Sidebar Overlay Backscreen clicker -->
+  <div id="drawer-overlay" class="drawer-overlay" onclick="closeHistoryDrawer()"></div>
+
+  <!-- Site Footer -->
+  <footer>
+    <p>YIX Saver by <a href="https://x.com/Major_shammmu" target="_blank" rel="noopener">@Major_shammmu</a>
+    </p>
+  </footer>
+
+  <!-- Script Modules -->
+  <script src="app.js"></script>
+</body>
+
+</html>
