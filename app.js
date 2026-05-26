@@ -2,7 +2,9 @@
 //  VideoGrabber — Frontend Logic (Real Backend Edition)
 // ═══════════════════════════════════════════════════════════════
 
-const API_BASE = 'http://localhost:4000'; // Express backend port
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:4000'
+  : 'https://YOUR-RENDER-BACKEND-URL.onrender.com'; // <-- REPLACE THIS with your actual Render URL after you deploy to Render!
 
 // ─── App State ────────────────────────────────────────────────
 const state = {

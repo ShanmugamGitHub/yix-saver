@@ -298,6 +298,43 @@ app.get('/api/thumbnail', (req, res) => {
 // ─── GET /api/download ────────────────────────────────────────────────────────
 
 // Query: ?url=...&format_id=...&filename=...&ext=...
+// ─── Concurrency Queue for Downloads ─────────────────────────────────────────
+// Limits concurrent downloads to protect server memory (ideal for 512MB RAM)
+let activeDownloadsCount = 0;
+const MAX_CONCURRENT_DOWNLOADS = 2;
+const downloadQueue = [];
+
+function processDownloadQueue() {
+  if (activeDownloadsCount >= MAX_CONCURRENT_DOWNLOADS) return;
+  if (downloadQueue.length === 0) return;
+
+  const { req, res, execute } = downloadQueue.shift();
+  
+  // If the client already disconnected while waiting in queue, skip it
+  if (res.writableEnded || res.destroyed) {
+    processDownloadQueue();
+    return;
+  }
+
+  activeDownloadsCount++;
+  console.log(`[queue] Starting download job. Active: ${activeDownloadsCount}/${MAX_CONCURRENT_DOWNLOADS}`);
+
+  let finished = false;
+  const finishJob = () => {
+    if (!finished) {
+      finished = true;
+      activeDownloadsCount--;
+      console.log(`[queue] Finished download job. Active: ${activeDownloadsCount}/${MAX_CONCURRENT_DOWNLOADS}`);
+      processDownloadQueue();
+    }
+  };
+
+  res.on('finish', finishJob);
+  res.on('close', finishJob);
+
+  execute();
+}
+
 // Streams the video file directly to the browser
 app.get('/api/download', (req, res) => {
   const { url, format_id, filename, ext } = req.query;
@@ -308,157 +345,168 @@ app.get('/api/download', (req, res) => {
 
   const safeFilename = (filename || 'video').replace(/[^a-zA-Z0-9_\- ]/g, '_');
 
-  // ── Two download paths ─────────────────────────────────────────────────────
-  // PATH A: single pre-merged stream → pipe stdout directly to browser (instant).
-  // PATH B: format has '+' → needs yt-dlp to merge video+audio into temp file.
-  //         Also triggered by needs_merge=1 from frontend.
+  const executeDownload = () => {
+    const needsMerge = format_id.includes('+') || req.query.needs_merge === '1';
+    console.log(`[download] ▶ format_id="${format_id}"  needsMerge=${needsMerge}  url=${url}`);
 
-  const needsMerge = format_id.includes('+') || req.query.needs_merge === '1';
-  console.log(`[download] ▶ format_id="${format_id}"  needsMerge=${needsMerge}  url=${url}`);
-
-
-  if (!needsMerge) {
-    // ─── PATH A: Direct pipe ──────────────────────────────────────────────
-    console.log('[download] PATH A — direct pipe (single stream)');
-    const args = [
-      '-f', format_id,
-      '--no-playlist',
-      '--no-warnings',
-      '-o', '-',
-      url
-    ];
-
-    res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.mp4"`);
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
-    const proc = spawnYtDlp(args, { windowsHide: true });
-    proc.stdout.pipe(res);
-
-    let stderrBuf = '';
-    proc.stderr.on('data', chunk => {
-      const line = chunk.toString();
-      stderrBuf += line;
-      process.stdout.write(`[yt-dlp] ${line}`);
-    });
-    proc.on('error', err => {
-      console.error('[download] Spawn error:', err);
-      if (!res.headersSent) res.status(500).json({ error: err.message });
-    });
-    proc.on('close', code => {
-      console.log(`[download] yt-dlp exited ${code}`);
-      if (!res.writableEnded) res.end();
-    });
-    req.on('close', () => { if (!proc.killed) proc.kill('SIGTERM'); });
-
-  } else {
-    // ─── PATH B: Temp file merge ──────────────────────────────────────────
-    console.log('[download] PATH B — temp file merge (video+audio DASH)');
-    const os = require('os');
-    const fs = require('fs');
-    const tempBase = path.join(os.tmpdir(), `yix_${Date.now()}_${Math.random().toString(36).slice(2)}`);
-    const tempPattern = tempBase + '.%(ext)s';
-
-    const args = [
-      '-f', format_id,
-      '--no-playlist',
-      '--no-warnings',
-      '--remux-video', 'mp4',          // Force ffmpeg remux TS→MP4 (extracts audio from HLS TS)
-      '--merge-output-format', 'mp4',  // If merging two formats, output as MP4
-      // Move moov atom to start of file → browser can play immediately, audio works
-      '--postprocessor-args', 'Merger:-movflags +faststart',
-      '-o', tempPattern,
-      url
-    ];
-
-    const proc = spawnYtDlp(args, { windowsHide: true });
-
-    let stderrBuf = '';
-    proc.stderr.on('data', chunk => {
-      const line = chunk.toString();
-      stderrBuf += line;
-      process.stdout.write(`[yt-dlp] ${line}`);
-    });
-    proc.stdout.on('data', d => process.stdout.write(d.toString()));
-
-    proc.on('error', err => {
-      console.error('[download] Spawn error:', err);
-      if (!res.headersSent) res.status(500).json({ error: err.message });
-    });
-
-    proc.on('close', code => {
-      console.log(`[download] yt-dlp merge exited ${code}`);
-
-      if (code !== 0) {
-        if (!res.headersSent) res.status(500).json({
-          error: 'Merge failed',
-          detail: stderrBuf.split('\n').find(l => l.includes('ERROR')) || stderrBuf.slice(-200)
-        });
-        return;
-      }
-
-      // Find the actual output file (yt-dlp fills in %(ext)s)
-      let actualFile = null;
-      try {
-        const dir = path.dirname(tempBase);
-        const base = path.basename(tempBase);
-        actualFile = fs.readdirSync(dir)
-          .map(f => path.join(dir, f))
-          .find(f => path.basename(f).startsWith(base));
-      } catch(e) { console.error('[download] Could not list temp dir:', e.message); }
-
-      if (!actualFile || !fs.existsSync(actualFile)) {
-        if (!res.headersSent) res.status(500).json({ error: 'Merged file not found.' });
-        return;
-      }
-
-      // ── For single-format downloads (no '+' in format_id), yt-dlp gives us
-      //    TS-in-MP4 via FixupM3u8 which may lose audio. Explicitly remux
-      //    with ffmpeg to extract both audio+video tracks properly. ────────
-      const needsFFmpegRemux = !format_id.includes('+');
-
-      if (needsFFmpegRemux) {
-        const remuxedFile = actualFile.replace(/\.mp4$/i, '_remuxed.mp4');
-        console.log(`[download] Running ffmpeg remux: ${actualFile} → ${remuxedFile}`);
-
-        const { execFileSync } = require('child_process');
-        try {
-          execFileSync('ffmpeg', [
-            '-y',
-            '-i', actualFile,
-            '-c', 'copy',
-            '-movflags', '+faststart',
-            remuxedFile
-          ], { windowsHide: true, timeout: 60000 });
-
-          // Replace the original file with the remuxed one
-          fs.unlinkSync(actualFile);
-          actualFile = remuxedFile;
-          console.log('[download] ffmpeg remux complete ✓');
-        } catch (ffErr) {
-          console.error('[download] ffmpeg remux failed:', ffErr.message);
-          // Fall back to the original file if ffmpeg fails
-        }
-      }
-
-      const stat = fs.statSync(actualFile);
-      console.log(`[download] Streaming merged file: ${actualFile} (${(stat.size/1024/1024).toFixed(1)} MB)`);
+    if (!needsMerge) {
+      // ─── PATH A: Direct pipe ──────────────────────────────────────────────
+      console.log('[download] PATH A — direct pipe (single stream)');
+      const args = [
+        '-f', format_id,
+        '--no-playlist',
+        '--no-warnings',
+        '-o', '-',
+        url
+      ];
 
       res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.mp4"`);
       res.setHeader('Content-Type', 'video/mp4');
-      res.setHeader('Content-Length', stat.size);
+      res.setHeader('Transfer-Encoding', 'chunked');
 
-      const stream = fs.createReadStream(actualFile);
-      stream.pipe(res);
-      stream.on('end', () => {
-        fs.unlink(actualFile, e => e && console.warn('[download] Cleanup error:', e.message));
+      const proc = spawnYtDlp(args, { windowsHide: true });
+      proc.stdout.pipe(res);
+
+      let stderrBuf = '';
+      proc.stderr.on('data', chunk => {
+        const line = chunk.toString();
+        stderrBuf += line;
+        process.stdout.write(`[yt-dlp] ${line}`);
       });
-      stream.on('error', e => { console.error('[download] Read error:', e); res.end(); });
+      proc.on('error', err => {
+        console.error('[download] Spawn error:', err);
+        if (!res.headersSent) res.status(500).json({ error: err.message });
+      });
+      proc.on('close', code => {
+        console.log(`[download] yt-dlp exited ${code}`);
+        if (!res.writableEnded) res.end();
+      });
+      req.on('close', () => { if (!proc.killed) proc.kill('SIGTERM'); });
 
-    });
+    } else {
+      // ─── PATH B: Temp file merge ──────────────────────────────────────────
+      console.log('[download] PATH B — temp file merge (video+audio DASH)');
+      const os = require('os');
+      const fs = require('fs');
+      const tempBase = path.join(os.tmpdir(), `yix_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+      const tempPattern = tempBase + '.%(ext)s';
 
-    req.on('close', () => { if (!proc.killed) proc.kill('SIGTERM'); });
-  }
+      const args = [
+        '-f', format_id,
+        '--no-playlist',
+        '--no-warnings',
+        '--remux-video', 'mp4',          // Force ffmpeg remux TS→MP4 (extracts audio from HLS TS)
+        '--merge-output-format', 'mp4',  // If merging two formats, output as MP4
+        // Move moov atom to start of file → browser can play immediately, audio works
+        '--postprocessor-args', 'Merger:-movflags +faststart',
+        '-o', tempPattern,
+        url
+      ];
+
+      const proc = spawnYtDlp(args, { windowsHide: true });
+
+      let stderrBuf = '';
+      proc.stderr.on('data', chunk => {
+        const line = chunk.toString();
+        stderrBuf += line;
+        process.stdout.write(`[yt-dlp] ${line}`);
+      });
+      proc.stdout.on('data', d => process.stdout.write(d.toString()));
+
+      proc.on('error', err => {
+        console.error('[download] Spawn error:', err);
+        if (!res.headersSent) res.status(500).json({ error: err.message });
+      });
+
+      proc.on('close', code => {
+        console.log(`[download] yt-dlp merge exited ${code}`);
+
+        if (code !== 0) {
+          if (!res.headersSent) res.status(500).json({
+            error: 'Merge failed',
+            detail: stderrBuf.split('\n').find(l => l.includes('ERROR')) || stderrBuf.slice(-200)
+          });
+          return;
+        }
+
+        // Find the actual output file (yt-dlp fills in %(ext)s)
+        let actualFile = null;
+        try {
+          const dir = path.dirname(tempBase);
+          const base = path.basename(tempBase);
+          actualFile = fs.readdirSync(dir)
+            .map(f => path.join(dir, f))
+            .find(f => path.basename(f).startsWith(base));
+        } catch(e) { console.error('[download] Could not list temp dir:', e.message); }
+
+        if (!actualFile || !fs.existsSync(actualFile)) {
+          if (!res.headersSent) res.status(500).json({ error: 'Merged file not found.' });
+          return;
+        }
+
+        // ── For single-format downloads (no '+' in format_id), yt-dlp gives us
+        //    TS-in-MP4 via FixupM3u8 which may lose audio. Explicitly remux
+        //    with ffmpeg to extract both audio+video tracks properly. ────────
+        const needsFFmpegRemux = !format_id.includes('+');
+
+        if (needsFFmpegRemux) {
+          const remuxedFile = actualFile.replace(/\.mp4$/i, '_remuxed.mp4');
+          console.log(`[download] Running ffmpeg remux: ${actualFile} → ${remuxedFile}`);
+
+          const { execFileSync } = require('child_process');
+          try {
+            execFileSync('ffmpeg', [
+              '-y',
+              '-i', actualFile,
+              '-c', 'copy',
+              '-movflags', '+faststart',
+              remuxedFile
+            ], { windowsHide: true, timeout: 60000 });
+
+            // Replace the original file with the remuxed one
+            fs.unlinkSync(actualFile);
+            actualFile = remuxedFile;
+            console.log('[download] ffmpeg remux complete ✓');
+          } catch (ffErr) {
+            console.error('[download] ffmpeg remux failed:', ffErr.message);
+            // Fall back to the original file if ffmpeg fails
+          }
+        }
+
+        const stat = fs.statSync(actualFile);
+        console.log(`[download] Streaming merged file: ${actualFile} (${(stat.size/1024/1024).toFixed(1)} MB)`);
+
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.mp4"`);
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Length', stat.size);
+
+        const stream = fs.createReadStream(actualFile);
+        stream.pipe(res);
+        stream.on('end', () => {
+          fs.unlink(actualFile, e => e && console.warn('[download] Cleanup error:', e.message));
+        });
+        stream.on('error', e => { console.error('[download] Read error:', e); res.end(); });
+
+      });
+
+      req.on('close', () => { if (!proc.killed) proc.kill('SIGTERM'); });
+    }
+  };
+
+  // Add the request to the concurrency queue
+  console.log(`[queue] Adding download to queue. Queue length: ${downloadQueue.length + 1}`);
+  downloadQueue.push({ req, res, execute: executeDownload });
+
+  // If the user aborts while still in the queue, remove them from the queue
+  req.on('close', () => {
+    const idx = downloadQueue.findIndex(item => item.req === req);
+    if (idx !== -1) {
+      console.log('[queue] Client disconnected while in queue. Removing.');
+      downloadQueue.splice(idx, 1);
+    }
+  });
+
+  processDownloadQueue();
 });
 
 
