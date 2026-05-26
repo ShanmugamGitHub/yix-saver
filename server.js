@@ -10,6 +10,21 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// ─── Auto-upgrade yt-dlp on startup to bypass Docker layer caching ───────────
+console.log('🔄 Checking and upgrading yt-dlp to the latest version...');
+const { execSync } = require('child_process');
+try {
+  execSync('python -m pip install -U --no-cache-dir --break-system-packages yt-dlp', { stdio: 'inherit', windowsHide: true });
+  console.log('✅ yt-dlp upgrade check complete.');
+} catch (e) {
+  try {
+    execSync('python -m pip install -U --no-cache-dir yt-dlp', { stdio: 'inherit', windowsHide: true });
+    console.log('✅ yt-dlp upgrade check complete (fallback).');
+  } catch (err) {
+    console.warn('⚠️ Could not auto-upgrade yt-dlp:', err.message);
+  }
+}
+
 // Serve the frontend static files
 app.use(express.static(path.join(__dirname)));
 
