@@ -359,10 +359,30 @@ function triggerDownload(fmt, meta) {
   if (actionEl.dataset.busy === '1') return;
   actionEl.dataset.busy = '1';
 
-  // Visual feedback
+  // Visual feedback: animate progress bar slowly over 20 seconds
   actionEl.innerHTML = `<span>Connecting…</span> <i class="fas fa-spinner fa-spin"></i>`;
-  progressEl.style.transition = 'width 30s linear';
-  progressEl.style.width = '90%';
+  progressEl.style.transition = 'width 20s cubic-bezier(0.1, 0.8, 0.1, 1)';
+  progressEl.style.width = '92%';
+
+  // Step-by-step simulator to match backend activities
+  const textSteps = [
+    { time: 1800,  text: 'Fetching streams…' },
+    { time: 4500,  text: 'Downloading video…' },
+    { time: 7500,  text: 'Downloading audio…' },
+    { time: 11000, text: 'Merging tracks (ffmpeg)…' },
+    { time: 15000, text: 'Optimising MP4…' },
+    { time: 18500, text: 'Starting download!' }
+  ];
+
+  const stepTimers = [];
+  textSteps.forEach(step => {
+    const t = setTimeout(() => {
+      if (actionEl.dataset.busy === '1') {
+        actionEl.innerHTML = `<span>${step.text}</span> <i class="fas fa-spinner fa-spin"></i>`;
+      }
+    }, step.time);
+    stepTimers.push(t);
+  });
 
   const safeTitle = (meta.title || 'video').replace(/[^a-zA-Z0-9_\- ]/g, '_').slice(0, 60);
   const params = new URLSearchParams({
@@ -376,19 +396,27 @@ function triggerDownload(fmt, meta) {
 
   const downloadUrl = `${API_BASE}/api/download?${params.toString()}`;
 
-  // window.open triggers the Save-As dialog immediately as yt-dlp streams bytes
-  window.open(downloadUrl, '_blank');
+  // TRIGGER BACKGROUND DOWNLOAD (No new tab, no redirect!)
+  let downloadFrame = document.getElementById('download-frame');
+  if (!downloadFrame) {
+    downloadFrame = document.createElement('iframe');
+    downloadFrame.id = 'download-frame';
+    downloadFrame.style.display = 'none';
+    document.body.appendChild(downloadFrame);
+  }
+  downloadFrame.src = downloadUrl;
 
   const label = fmt.quality === 'Audio' ? 'audio' : `${fmt.quality} MP4`;
-  showToast(`⬇️ Downloading ${label} — browser Save-As dialog will appear shortly.`, 'success');
+  showToast(`⬇️ Processing ${label} on server. Your download will start shortly!`, 'success');
 
-  // Reset button
+  // Reset button after 21 seconds (full cycle)
   setTimeout(() => {
-    progressEl.style.transition = 'width 0.3s ease';
+    progressEl.style.transition = 'width 0.4s ease';
     progressEl.style.width = '0%';
     actionEl.innerHTML = `<span>Download</span> <i class="fas fa-download"></i>`;
     delete actionEl.dataset.busy;
-  }, 5000);
+    stepTimers.forEach(clearTimeout);
+  }, 21000);
 }
 
 
