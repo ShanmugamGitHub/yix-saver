@@ -32,8 +32,17 @@ app.use(express.static(path.join(__dirname)));
 const FFMPEG_PATH = path.join(__dirname, 'ffmpeg.exe');
 const ffmpegExists = require('fs').existsSync(FFMPEG_PATH);
 
-const COOKIES_PATH = path.join(__dirname, 'cookies.txt');
-const cookiesExists = require('fs').existsSync(COOKIES_PATH);
+const fs = require('fs');
+const LOCAL_COOKIES = path.join(__dirname, 'cookies.txt');
+const RENDER_COOKIES = '/etc/secrets/cookies.txt';
+
+let COOKIES_PATH = null;
+if (fs.existsSync(LOCAL_COOKIES)) {
+  COOKIES_PATH = LOCAL_COOKIES;
+} else if (fs.existsSync(RENDER_COOKIES)) {
+  COOKIES_PATH = RENDER_COOKIES;
+}
+const cookiesExists = !!COOKIES_PATH;
 
 function spawnYtDlp(args, opts) {
   const extraArgs = ffmpegExists ? ['--ffmpeg-location', FFMPEG_PATH] : [];
